@@ -23,18 +23,9 @@ from tensorflow.python import debug as tf_debug
 
 pd.set_option("display.max_colwidth",1000)
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
-
-
-# In[2]:
-
-
-train = pd.read_csv("../input/train_.csv")
-dev = pd.read_csv("../input/dev.csv")
+train = pd.read_csv("../input/train.exam.csv")
+train, dev = train_test_split(train, test_size=5)
 test = pd.read_csv("../input/test.csv")
-
 
 # In[3]:
 
@@ -73,7 +64,6 @@ def clean_text(text):
     return text
 
 
-# In[4]:
 
 
 train["question_word"] = list(map(clean_text, train["question_text"]))
@@ -133,7 +123,7 @@ def load_vec(filename):
                     
         oov_rate = (vocab_size - cnt) / vocab_size
         return matrix_embed, oov_rate
-pretrained_emb, oov_rate = load_vec("../input/glove.6B.300d.txt")
+pretrained_emb, oov_rate = load_vec("../input/glove.examp")
 
 
 # In[8]:
@@ -209,9 +199,38 @@ with tf.variable_scope("summary"):
 
 # In[13]:
 
+def evaluate(val, sess):
+    def search_threshold(thresholds, proba):
+        max_f1, max_thre = 0., 0.
+        for threshold in thresholds:
+            val["prediction"] = np.asarray(proba > threshold, np.int64)
+            f1 = metrics.f1_score(y_pred=val["prediction"], y_true=val["target"])
+            if max_f1 < f1:
+                max_f1, max_thre = f1, threshold
+
+        return max_f1, max_thre
+
+    probs = sess.run(y_hat, feed_dict={
+        question_input: [sent2idsAndPad(q, max_length) for q in val["question_word"]],
+        target_input: [target for target in val.target],
+        question_len: [len(q.split(" ")) for q in val["question_word"]]
+    })
+
+    fpr, tpr, thresholds = metrics.roc_curve(val["target"], probs)
+    _, opt_thre = search_threshold(thresholds, probs)
+    val["prediction"] = np.asarray(probs > opt_thre, np.int64)
+    cm = confusion_matrix(y_pred=val["prediction"], y_true=val["target"])
+    print(cm)
+    print(metrics.f1_score(y_pred=val["prediction"], y_true=val["target"]))
+    print(metrics.accuracy_score(y_pred=val["prediction"], y_true=val["target"]))
+    print(classification_report(y_pred=val["prediction"], y_true=val["target"]))
+    print(opt_thre)
+    return opt_thre
+
 
 with tf.Session() as sess:
-    sess = tf_debug.TensorBoardDebugWrapperSession(sess, "100.88.66.8:8080")      
+    # sess = tf_debug.TensorBoardDebugWrapperSession(sess, "100.88.66.8:8080")
+    sess = tf_debug.LocalCLIDebugWrapperSession(sess)
     sess.run(tf.global_variables_initializer())
     sess.run(tf.local_variables_initializer())
     summary_op = tf.summary.merge_all()
@@ -250,35 +269,7 @@ with tf.Session() as sess:
 # In[ ]:
 
 
-def evaluate(val, sess):
-    
-    def search_threshold(thresholds, proba):
-        max_f1, max_thre = 0., 0.
-        for threshold in thresholds:
-            val["prediction"] = np.asarray(proba > threshold, np.int64)
-            f1 = metrics.f1_score(y_pred=val["prediction"], y_true=val["target"])
-            if max_f1 < f1:
-                max_f1, max_thre = f1, threshold
 
-        return max_f1, max_thre
-        
-    probs = sess.run(y_hat, feed_dict={
-            question_input:[sent2idsAndPad(q, max_length) for q in val["question_word"]],
-            target_input:[target for target in val.target],
-            question_len: [len(q.split(" ")) for q in val["question_word"]]
-        })
-   
-    fpr, tpr, thresholds = metrics.roc_curve(val["target"], probs)
-    _, opt_thre = search_threshold(thresholds, probs)
-    val["prediction"] = np.asarray(probs > opt_thre, np.int64)
-    cm = confusion_matrix(y_pred=val["prediction"], y_true=val["target"])
-    print(cm)
-    print(metrics.f1_score(y_pred=val["prediction"], y_true=val["target"]))
-    print(metrics.accuracy_score(y_pred=val["prediction"], y_true=val["target"]))
-    print(classification_report(y_pred=val["prediction"], y_true=val["target"]))
-    print(opt_thre)
-    return opt_thre
-    
 
 
 
